@@ -49,4 +49,3 @@ class Video:
 if __name__ == "__main__":
     Video.video_to_frames("./video.mp4", "/video")
     Video.frames_to_video("/video", "video_tmp.mp4",24)
-    #print(resp)
