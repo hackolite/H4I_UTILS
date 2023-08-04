@@ -1,0 +1,9 @@
+opencv
+tensorflow
+matplotlib
+numpy
+cv2
+PIL
+pathlib
+math
+google.protobuf
