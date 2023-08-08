@@ -9,6 +9,8 @@ from PIL import Image
 from google.protobuf import text_format
 import platform
 import os
+
+
 #print('Python version:', platform.python_version())
 #print('Tensorflow version:', tf.__version__)
 #print('Keras version:', tf.keras.__version__)
@@ -161,8 +163,6 @@ def draw_detections_on_image(image, detections, labels):
 
     return image_with_detections
 
-# Example of how detections dictionary looks like.
-# image_np = np.array(Image.open(TEST_IMAGE_PATHS[1]))
 labels = load_labels(LABELS_NAME)
 image_np = np.array(Image.open("dog.jpeg"))
 detections = detect_objects_on_image(image_np, model)
