@@ -3,15 +3,14 @@ import time
 
 import cv2
 import numpy as np
-
+from PIL import Image
 
 import tracker
-import keyboard
 import pyparrot
 
 from pyparrot.Bebop import Bebop
 from pyparrot.DroneVision import DroneVision
-from pyparrot.Model import Model
+from pyparrot.DroneVisionGUI import DroneVisionGUI
 import threading
 import cv2
 import time
@@ -28,13 +27,50 @@ from PIL import Image
 from google.protobuf import text_format
 import platform
 import os
-from pyparrot.Bebop import Bebop
+
 from pyparrot.DroneVision import DroneVision
-from pyparrot.Model import Model
 import threading
 import cv2
 import time
+from pyparrot.Model import Model
+import vlc
+import cv2, os
+import cv2,os
 
+import time
+
+import tracker
+#from protos import string_int_label_map_pb2
+
+
+
+vmax = 0.4
+w, h = 180, 320
+#kpx, kdx = 0.0025, 0.05
+
+kpx, kdx, kix = 0., 0., 0.
+kpx, kdx, kix = 0.002, 0.04, 0.
+kpy, kdy, kiy = 0.004, 0., 0.
+kpz, kdz, kiz = 0., 0., 0.
+kpz, kdz, kiz = 0.005, 0.05, 0.00001
+kpt, kdt, kit = 0., 0., 0.
+
+kp = [kpx, kpy, kpz, kpt]
+kd = [kdx, kdy, kdz, kdt]
+ki = [kix, kiy, kiz, kit]
+
+
+
+class UserVision:
+    def __init__(self, vision):
+        self.index = 0
+        self.vision = vision
+
+    def save_pictures(self, args):
+        pass
+
+
+os.environ['OPENCV_FFMPEG_CAPTURE_OPTIONS']='file;rtp;udp'
 
 # Initialize the list of class labels MobileNet SSD was trained to
 # detect, then generate a set of bounding box colors for each class
@@ -45,23 +81,9 @@ CLASSES = ["background", "aeroplane", "bicycle", "bird", "boat",
 
 COLORS = np.random.uniform(0, 255, size=(len(CLASSES), 3))
 
-class UserVision:
-    def __init__(self, vision):
-        self.index = 0
-        self.vision = vision
 
-    def save_pictures(self, args):
-        # print("in save pictures on image %d " % self.index)
-
-        img = self.vision.get_latest_valid_picture()
-
-        if (img is not None):
-            filename = "test_image_%06d.png" % self.index
-            # uncomment this if you want to write out images every time you get a new one
-            #cv2.imwrite(filename, img)
-            self.index +=1
-
-
+def demo_user_code_after_vision_opened(bebopVision, args):
+    pass
 
 # Loads the module from internet, unpacks it and initializes a Tensorflow saved model.
 def load_model(model_name):
@@ -73,19 +95,75 @@ def load_model(model_name):
         untar=True,
         cache_dir=pathlib.Path('.tmp').absolute()
     )
-    model = tf.saved_model.load(model_dir + '/saved_model')
+    model = tf.saved_model.load(export_dir=model_dir + '/saved_model', tags=None)
 
     return model
 
+def load_labels(labels_name):
+    labels_url = 'https://raw.githubusercontent.com/tensorflow/models/master/research/object_detection/data/' + labels_name
+
+    labels_path = tf.keras.utils.get_file(
+        fname=labels_name,
+        origin=labels_url,
+        cache_dir=pathlib.Path('.tmp').absolute()
+    )
+
+    labels_file = open(labels_path, 'r')
+    labels_string = labels_file.read()
+
+    labels_map = string_int_label_map_pb2.StringIntLabelMap()
+    try:
+        text_format.Merge(labels_string, labels_map)
+    except text_format.ParseError:
+        labels_map.ParseFromString(labels_string)
+
+    labels_dict = {}
+    for item in labels_map.item:
+        labels_dict[item.id] = item.display_name
+
+    return labels_dict
+
+
+def detect_objects_on_image(image, model):
+    input_tensor = tf.convert_to_tensor(image)
+    # Adding one more dimension since model expect a batch of images.
+    input_tensor = data.astype(np.uint8)
+    input_tensor = input_tensor[tf.newaxis, ...]
+
+    output_dict = model(input_tensor)
+
+    num_detections = int(output_dict['num_detections'])
+    output_dict = {
+        key:value[0, :num_detections].numpy()
+        for key,value in output_dict.items()
+        if key != 'num_detections'
+    }
+    output_dict['num_detections'] = num_detections
+    output_dict['detection_classes'] = output_dict['detection_classes'].astype(np.int64)
+
+    return output_dict
+
+
+
+class UserVision:
+    def __init__(self, vision):
+        self.index = 0
+        self.vision = vision
+
+    def save_pictures(self, args):
+            pass
+            #img = self.vision.get_latest_valid_picture()
+            #cv2.imshow("filename", img)
+            #cv2.waitKey(20)
 
 class Drone(Bebop):
     def __init__(self):
+        Bebop.__init__(self, drone_type="Bebop2")
         self.camera = None
 
     def init_drone(self):
         #check internals parameters
         pass
-
 
 
     def land(self):
@@ -98,22 +176,6 @@ class Drone(Bebop):
 
 
 
-    def start_camera(self):
-        if self.camera == None:
-            self.camera = DroneVision(bebop, Model.BEBOP)
-        else:
-            pass
-
-        success = self.camera.open_video()
-            if (success):
-                print("camera open")
-
-
-
-    def connect(self):
-        success = self.connect(5)
-        if (success):
-            self.network_success = True
 
     def disconnect(self):
         success = self.disconnect()
@@ -125,28 +187,53 @@ class Drone(Bebop):
 
 
 
-def main():
+class Vision(DroneVision):
+    def __init__(self, drone, vision):
+        DroneVision.__init__(self, drone, vision)
+        self.start_time = time.time()
+        self.vidcap = cv2.VideoCapture(0)
 
+
+    def get_drone(self):
+        #check internals parameters
+        current = time.time()
+        start = self.start_time
+        return current-start , self.get_latest_valid_picture()
+
+    def get_webcam(self):
+        #check internals parameters
+        if self.vidcap.isOpened():
+            ret, frame = self.vidcap.read()
+        else:
+            print("cannot open camera")
+        current = time.time()
+        start = self.start_time
+        return current-start , frame
+
+def main():
     # Load our serialized model from disk
     print("[INFO] Loading model...")
-    #net = cv2.dnn.readNetFromCaffe(args["prototxt"], args["model"])
+    model = load_model("ssdlite_mobilenet_v2_coco_2018_05_09")
+    print("[INFO] Loading successfull...")
 
-    # Initialize the drone and allow the camera sensor to warm up
-    drone, status = init_drone()
+    drone = Drone()
+    success = drone.connect(5)
+    drone.set_video_stream_mode(mode = 'low_latency')
+    if vision == "drone":
+        # start up the video
+        bebopVision = Vision(drone, Model.BEBOP)
+        userVision = UserVision(bebopVision)
+        bebopVision.set_user_callback_function(userVision.save_pictures, user_callback_args=None)
+        success = bebopVision.open_video()
+        track_person = tracker.Tracker("Tracking", vmax, w, h, kp, ki, kd, 0.8, 80, drone=drone, model=model, vision=bebopVision )
+        track_person.track()
 
-    frames = frame_grabber(drone)
-    time.sleep(2.0)
+    elif vision = "webcam":
+        print("use webcam")
+        webcamVision = Vision(drone, Model.BEBOP)
+        track_person = tracker.Tracker("Webcam", vmax, w, h, kp, ki, kd, 0.8, 80, drone=None, model=model, vision=webcamVision)
+        track_person.track()
 
-    drone.takeoff()
-    time.sleep(5.0)
 
 
-    # Define the codec and create VideoWriter object
-    out = cv2.VideoWriter('videos/tracking' + str(time.clock()) + '.mp4', cv2.VideoWriter_fourcc('M','J','P','G'), 15., (3*h, 3*w))
-    track_person = tracker.Tracker("Tracking", drone, net, frames, vmax, w, h, kp, ki, kd, args['confidence'], 80)
-    track_person.track(out)
-    drone.land()
-    out.release()
-
-#main()
-model = load_model()
+main(vision="webcam")

@@ -1,7 +1,5 @@
-import ps_drone
 
 import pid
-import keyboard
 
 
 class MoveDrone:
@@ -27,7 +25,7 @@ class MoveDrone:
 		self.vz = self.pidz.speed2(e, prev_e)
 
 	def yaw(self, e, prev_e):
-		self.vt = self.pidt.speed2(e, prev_e)          
+		self.vt = self.pidt.speed2(e, prev_e)
 
 	def set_velocities(self, ex, prev_ex, ey, prev_ey, ez, prev_ez, et, prev_et):
 		self.roll(ex, prev_ex)
@@ -36,9 +34,9 @@ class MoveDrone:
 		self.yaw(et, prev_et)
 
 	def move_drone(self):
-		print "VX: ", self.vx
-		print "VY: ", self.vy
-		print "VZ: ", self.vz
+		print("VX: ", self.vx)
+		print("VY: ", self.vy)
+		print("VZ: ", self.vz)
 		self.drone.move(float(self.vx), float(self.vz), float(self.vy), float(self.vt))
 
 	def stop_drone(self):
