@@ -40,8 +40,10 @@ import cv2,os
 import time
 
 import tracker
+from utils import detect
 #from protos import string_int_label_map_pb2
-
+import string
+import random
 
 
 vmax = 0.4
@@ -61,14 +63,7 @@ ki = [kix, kiy, kiz, kit]
 
 
 
-class UserVision:
-    def __init__(self, vision):
-        self.index = 0
-        self.vision = vision
-
-    def save_pictures(self, args):
-        pass
-
+print("Num GPUs Available: ", len(tf.config.list_physical_devices('GPU')))
 
 os.environ['OPENCV_FFMPEG_CAPTURE_OPTIONS']='file;rtp;udp'
 
@@ -84,6 +79,14 @@ COLORS = np.random.uniform(0, 255, size=(len(CLASSES), 3))
 
 def demo_user_code_after_vision_opened(bebopVision, args):
     pass
+
+def random_str(length):
+    # choose from all lowercase letter
+    letters = string.ascii_lowercase
+    result_str = ''.join(random.choice(letters) for i in range(length))
+    print("Random string of length", length, "is:", result_str)
+    return result_str
+
 
 # Loads the module from internet, unpacks it and initializes a Tensorflow saved model.
 def load_model(model_name):
@@ -112,6 +115,7 @@ def load_labels(labels_name):
     labels_string = labels_file.read()
 
     labels_map = string_int_label_map_pb2.StringIntLabelMap()
+
     try:
         text_format.Merge(labels_string, labels_map)
     except text_format.ParseError:
@@ -152,9 +156,12 @@ class UserVision:
 
     def save_pictures(self, args):
             pass
-            #img = self.vision.get_latest_valid_picture()
-            #cv2.imshow("filename", img)
-            #cv2.waitKey(20)
+
+
+    def print_toto(self, args):
+                print("toto")
+
+
 
 class Drone(Bebop):
     def __init__(self):
@@ -176,7 +183,6 @@ class Drone(Bebop):
 
 
 
-
     def disconnect(self):
         success = self.disconnect()
 
@@ -187,6 +193,10 @@ class Drone(Bebop):
 
 
 
+    def open_video(self):
+        pass
+
+
 class Vision(DroneVision):
     def __init__(self, drone, vision):
         DroneVision.__init__(self, drone, vision)
@@ -194,11 +204,15 @@ class Vision(DroneVision):
         self.vidcap = cv2.VideoCapture(0)
 
 
+
+
     def get_drone(self):
         #check internals parameters
         current = time.time()
         start = self.start_time
         return current-start , self.get_latest_valid_picture()
+
+
 
     def get_webcam(self):
         #check internals parameters
@@ -208,19 +222,40 @@ class Vision(DroneVision):
             print("cannot open camera")
         current = time.time()
         start = self.start_time
-        return current-start , frame
+        return current-start, frame
 
-def main():
+
+def convert(detections):
+    dic_detect = {}
+    size  = int(detections["num_detections"])
+    for ind  in range(size):
+        dic_detect[random_str(7)] = {'detection_classes' :detections["detection_classes"][ind],
+        "detection_scores":detections["detection_scores"][ind], "detection_boxes":detections["detection_boxes"][ind]}
+    return dic_detect
+
+
+
+def is_target_detected(detections=None, classe=None):
+    dictionnary = convert(detections)
+    for key, value in dictionnary.items():
+        if value["detection_classes"] == classe:
+            return  {key:value}
+    return False
+
+
+def main(vision="webcam"):
     # Load our serialized model from disk
     print("[INFO] Loading model...")
     model = load_model("ssdlite_mobilenet_v2_coco_2018_05_09")
     print("[INFO] Loading successfull...")
 
-    drone = Drone()
-    success = drone.connect(5)
-    drone.set_video_stream_mode(mode = 'low_latency')
+
     if vision == "drone":
         # start up the video
+        drone = Drone()
+        success = drone.connect(5)
+        drone.set_video_stream_mode(mode = 'low_latency')
+
         bebopVision = Vision(drone, Model.BEBOP)
         userVision = UserVision(bebopVision)
         bebopVision.set_user_callback_function(userVision.save_pictures, user_callback_args=None)
@@ -228,12 +263,28 @@ def main():
         track_person = tracker.Tracker("Tracking", vmax, w, h, kp, ki, kd, 0.8, 80, drone=drone, model=model, vision=bebopVision )
         track_person.track()
 
-    elif vision = "webcam":
-        print("use webcam")
+    elif vision == "webcam":
+        print("... USE WEBCAM ...")
+        drone = Drone()
         webcamVision = Vision(drone, Model.BEBOP)
-        track_person = tracker.Tracker("Webcam", vmax, w, h, kp, ki, kd, 0.8, 80, drone=None, model=model, vision=webcamVision)
-        track_person.track()
+        userVision = UserVision(webcamVision)
+        webcamVision.set_user_callback_function(userVision.print_toto, user_callback_args=None)
 
+        while True :
+            elapsed_time, frame = webcamVision.get_webcam()
+            detections = detect(image=frame, model=model.signatures['serving_default'])
+            print(elapsed_time, detections)
+            resp = is_target_detected(detections=detections, classe=1)
+            if resp:
+                track_person = tracker.Tracker("webcam", vmax, w, h, kp, ki, kd, 0.8, 80, drone=None, model=model, vision=webcamVision)
+                track_person.track()
+
+            if elapsed_time > 20:
+                print("OBJECT NOT DETECTED")
+                exit(0)
+
+        else:
+            pass
 
 
 main(vision="webcam")
