@@ -37,33 +37,15 @@ import vlc
 import cv2, os
 import cv2,os
 
-import time
-
-import tracker
+import time, tracker
 from utils import detect
 #from protos import string_int_label_map_pb2
 import string
 import random
 
+from pid import PidController
 
-vmax = 0.4
-w, h = 180, 320
-#kpx, kdx = 0.0025, 0.05
-
-kpx, kdx, kix = 0., 0., 0.
-kpx, kdx, kix = 0.002, 0.04, 0.
-kpy, kdy, kiy = 0.004, 0., 0.
-kpz, kdz, kiz = 0., 0., 0.
-kpz, kdz, kiz = 0.005, 0.05, 0.00001
-kpt, kdt, kit = 0., 0., 0.
-
-kp = [kpx, kpy, kpz, kpt]
-kd = [kdx, kdy, kdz, kdt]
-ki = [kix, kiy, kiz, kit]
-
-
-
-print("Num GPUs Available: ", len(tf.config.list_physical_devices('GPU')))
+("Num GPUs Available: ", len(tf.config.list_physical_devices('GPU')))
 
 os.environ['OPENCV_FFMPEG_CAPTURE_OPTIONS']='file;rtp;udp'
 
@@ -164,37 +146,98 @@ class UserVision:
 
 
 class Drone(Bebop):
-    def __init__(self):
+
+
+    def __init__(self, TARGET_X=0, TARGET_Y=0, TARGET_Z=200):
         Bebop.__init__(self, drone_type="Bebop2")
         self.camera = None
+        self.TARGET_X = TARGET_X
+        self.TARGET_Y = TARGET_Y
+        self.TARGET_Z = TARGET_Z
+        self.setup = False
 
-    def init_drone(self):
+
+    def pid_setup(self, X0=None, Y0=None, Z0=None):
         #check internals parameters
-        pass
+        self.setup = True
+        self.pid_x = PidController(0.0, 0.0, 1.0, self.TARGET_X, X0, 0)
+        self.pid_y = PidController(0.0, 0.0, 1.0, self.TARGET_Y, Y0, 0)
+        self.pid_z = PidController(0.0, 0.0, 1.0, self.TARGET_Z, Z0, 0)
+        self.start = time.time()
+
+        print("PID CORRECTION:", self.pid_x, self.pid_y, self.pid_z)
 
 
     def land(self):
         self.safe_land(10)
 
 
-
     def takeoff(self):
         self.safe_takeoff(10)
-
 
 
     def disconnect(self):
         success = self.disconnect()
 
 
-
     def stop_camera(self):
         self.camera.close_video()
+
+
+    def autodrive(self, delta_x=None, delta_y=None, delta_z=None, radius=0):
+        t = time.time() - self.start
+        pX = self.pid_x.next(t, delta_x)
+        pY = self.pid_y.next(t, delta_y)
+        pZ = self.pid_z.next(t, delta_z)
+        print(".... PID:", pX, pY, pZ, "......")
+        #self.move_relative(delta_x, delta_y, delta_z, 0)
+
+
+
+    def left(self, metres=None):
+        #y
+        pass
+
+
+    def right(self, metres=None):
+        #y
+        pass
+
+
+
+    def top(self, metres=None):
+        #y negative
+        pass
+
+
+    def bottom(self, metres=None):
+        #z positive
+        pass
+
+
+    def front(self, metres=None):
+        #x
+        pass
+
+
+    def back(self, metres=None):
+        #x
+        pass
 
 
 
     def open_video(self):
         pass
+
+
+    def set_control(self):
+        pass
+
+
+    def set_camera(self):
+        pass
+
+
 
 
 class Vision(DroneVision):
@@ -260,7 +303,7 @@ def main(vision="webcam"):
         userVision = UserVision(bebopVision)
         bebopVision.set_user_callback_function(userVision.save_pictures, user_callback_args=None)
         success = bebopVision.open_video()
-        track_person = tracker.Tracker("Tracking", vmax, w, h, kp, ki, kd, 0.8, 80, drone=drone, model=model, vision=bebopVision )
+        track_person = tracker.Tracker("Tracking", w, h, drone=drone, model=model, vision=bebopVision )
         track_person.track()
 
     elif vision == "webcam":
@@ -275,12 +318,14 @@ def main(vision="webcam"):
             detections = detect(image=frame, model=model.signatures['serving_default'])
             print(elapsed_time, detections)
             resp = is_target_detected(detections=detections, classe=1)
+            h, w = frame.shape[:2]
             if resp:
-                track_person = tracker.Tracker("webcam", vmax, w, h, kp, ki, kd, 0.8, 80, drone=None, model=model, vision=webcamVision)
+                track_person = tracker.Tracker("webcam", w, h, drone=drone, model=model, vision=webcamVision)
                 track_person.track()
 
             if elapsed_time > 20:
                 print("OBJECT NOT DETECTED")
+
                 exit(0)
 
         else:

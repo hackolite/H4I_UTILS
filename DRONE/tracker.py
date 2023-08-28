@@ -4,18 +4,17 @@ import cv2
 import numpy as np
 from labels import labels
 
-import move_drone
 import pid
 from utils import detect,  draw_detections_on_image, get_center_from_coordinate, draw_predictions_on_image, get_center
 import string
 import random
-
+from pid import PidController
 
 from kalman_filter import KalmanFilter
 
 COLOR_RED = (255, 0, 0)
 COLOR_GREEN = (0, 255, 0)
-
+COLOR_BLUE = (0, 0, 255)
 
 
 def convert(detections):
@@ -36,34 +35,20 @@ def random_str(length):
 
 
 
-#def get_center(loc):
-#  if loc is None:
-#    return None
-#  return int(loc[0] + (loc[2] - loc[0]) / 2), int(loc[3] + (loc[1] - loc[3]) / 2)
-
-
 class Tracker:
 
-    def __init__(self, window_name, vmax, w, h, kp, ki, kd, tol, alpha,  drone=None, model=None, vision=None):
+    def __init__(self, window_name, w, h, drone=None, model=None, vision=None):
 
         self.window_name = window_name
         self.net = model.signatures['serving_default']
-        self.tol = tol
         self.frames = vision
-        self.alpha = alpha
         self.h = h
         self.w = w
-
-
+        self.center_x = int(w/2)
+        self.center_y = int(h/2)
+        self.center_z = 100
         t = str(time.clock())
-
-        pidx = pid.PID(vmax, w, h, kp[0], ki[0], kd[0])
-        pidy = pid.PID(vmax, w, h, kp[1], ki[1], kd[1])
-        pidz = pid.PID(vmax, w, h, kp[2], ki[2], kd[2])
-        pidt = pid.PID(vmax, w, h, kp[3], ki[3], kd[3])
-
-        #self.controller = move_drone.MoveDrone(drone, pidx, pidy, pidz, pidt)
-
+        self.drone = drone
 
     def locate(self, frame):
 
@@ -102,19 +87,18 @@ class Tracker:
 
         stop = False
 
-
-        #Variable used to control the speed of reading the video
-        ControlSpeedVar = 100  #Lowest: 1 - Highest:100
-        HiSpeed = 100
         #Create KalmanFilter object KF
         #KalmanFilter(dt, u_x, u_y, std_acc, x_std_meas, y_std_meas)
-        debugMode=1
         KF = KalmanFilter()
         # set first point, the first location is VERY important
-        KF.update(np.array([[906], [311]], dtype=np.float32))
+
+        delta_x = None
+        delta_y = None
+        delta_z = None
+
+
 
         while not stop:
-
             # Obtain new frame
             if self.window_name == "webcam":
                 t, frame = self.frames.get_webcam()
@@ -125,21 +109,31 @@ class Tracker:
             if frame is not None:
                 (h, w) = frame.shape[:2]
                 found_persons, detections = self.locate(frame)
+                frame = cv2.circle(frame, (self.center_x, self.center_y), 0, COLOR_GREEN , 20)
+
 
                 if found_persons:
-                    x3, y3 = get_center_from_coordinate(frame, detections=detections)
+                    x3, y3, z3 = get_center_from_coordinate(frame, detections=detections)
                     current_measurement = np.array((x3, y3), dtype=np.float32).reshape(2, 1)
                     KF.update(current_measurement)
                     frame = draw_detections_on_image(frame, detections, labels)
+                    delta_x = x3 - self.center_x
+                    delta_y = y3 - self.center_y
+                    delta_z = self.center_z - z3
 
+                    if self.drone.setup == False:
+                        self.drone.pid_setup(X0=delta_x, Y0=delta_y, Z0=delta_z)
 
                 else:
                     (x, y) = KF.predict()
                     print("prediction :", x, y)
                     current_prediction = (int(x), int(y))
-                    lpx, lpy = int(current_prediction[0]), int(current_prediction[1])
-                    frame = cv2.circle(frame, (lpx, lpy), 0, COLOR_RED, 20) # plot prediction dot
+                    x3, y3 = int(current_prediction[0]), int(current_prediction[1])
+                    frame = cv2.circle(frame, (x3, y3), 0, COLOR_RED, 20)
 
+
+                if delta_z != None:
+                        self.drone.autodrive(delta_x=delta_x, delta_y=delta_y, delta_z=delta_z, radius=0)
                 cv2.imshow(self.window_name, frame)
 
 

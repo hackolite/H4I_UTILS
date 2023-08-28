@@ -44,20 +44,6 @@ from labels import labels
 
 
 
-vmax = 0.4
-w, h = 180, 320
-#kpx, kdx = 0.0025, 0.05
-
-kpx, kdx, kix = 0., 0., 0.
-kpx, kdx, kix = 0.002, 0.04, 0.
-kpy, kdy, kiy = 0.004, 0., 0.
-kpz, kdz, kiz = 0., 0., 0.
-kpz, kdz, kiz = 0.005, 0.05, 0.00001
-kpt, kdt, kit = 0., 0., 0.
-
-kp = [kpx, kpy, kpz, kpt]
-kd = [kdx, kdy, kdz, kdt]
-ki = [kix, kiy, kiz, kit]
 
 def get_center(bbox=None):
     x1 = bbox[0]
@@ -125,15 +111,6 @@ def detect(image=None, model=None, detection_type="tensorflow2"):
 
 
 
-#def get_coordinate(detections=None, height=None, width=None, classe=1):
-#    detection_box = detections['detection_boxes'][0]
-#    y1 = int(width * detection_box[0])
-#    x1 = int(height * detection_box[1])
-#    y2 = int(width * detection_box[2])
-#    x2 = int(height * detection_box[3])
-#    return x1, y1, x2, y2
-
-
 def get_center_from_coordinate(image, detections, classe=1):
         width, height, channels = image.shape
         num_detections = detections['num_detections']
@@ -151,7 +128,7 @@ def get_center_from_coordinate(image, detections, classe=1):
                     y2 = int(width * detection_box[2])
                     x2 = int(height * detection_box[3])
                     x3, y3 = get_center([x1,y1,x2,y2])
-                    return x3, y3
+                    return x3, y3, y2-y1
 
 def draw_detections_on_image(image, detections, labels, classe=1):
     image_with_detections = image
