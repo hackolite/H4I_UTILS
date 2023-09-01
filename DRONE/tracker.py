@@ -8,7 +8,7 @@ import pid
 from utils import detect,  draw_detections_on_image, get_center_from_coordinate, draw_predictions_on_image, get_center
 import string
 import random
-from pid import PidController
+
 
 from kalman_filter import KalmanFilter
 
@@ -30,7 +30,6 @@ def random_str(length):
     # choose from all lowercase letter
     letters = string.ascii_lowercase
     result_str = ''.join(random.choice(letters) for i in range(length))
-    print("Random string of length", length, "is:", result_str)
     return result_str
 
 
@@ -44,8 +43,8 @@ class Tracker:
         self.frames = vision
         self.h = h
         self.w = w
-        self.center_x = int(w/2)
-        self.center_y = int(h/2)
+        self.center_x = int(w//2)
+        self.center_y = int(h//2)
         self.center_z = 100
         t = str(time.clock())
         self.drone = drone
@@ -74,7 +73,6 @@ class Tracker:
             if idx == 1 and confidence > 0.5:
               # compute the (x, y)-coordinates of
               # the bounding box for the object
-              print(value["detection_boxes"])
               box = value["detection_boxes"] * np.array([w, h, w, h])
               found_persons.append(box)
 
@@ -92,9 +90,9 @@ class Tracker:
         KF = KalmanFilter()
         # set first point, the first location is VERY important
 
-        delta_x = None
-        delta_y = None
-        delta_z = None
+        x = None
+        y = None
+        z = None
 
 
 
@@ -103,7 +101,7 @@ class Tracker:
             if self.window_name == "webcam":
                 t, frame = self.frames.get_webcam()
 
-            else:
+            elif self.window_name == "drone":
                 t, frame = self.frames.get_drone()
 
             if frame is not None:
@@ -113,33 +111,36 @@ class Tracker:
 
 
                 if found_persons:
-                    x3, y3, z3 = get_center_from_coordinate(frame, detections=detections)
-                    current_measurement = np.array((x3, y3), dtype=np.float32).reshape(2, 1)
+                    x, y, z = get_center_from_coordinate(frame, detections=detections)
+                    current_measurement = np.array((x, y), dtype=np.float32).reshape(2, 1)
                     KF.update(current_measurement)
                     frame = draw_detections_on_image(frame, detections, labels)
-                    delta_x = x3 - self.center_x
-                    delta_y = y3 - self.center_y
-                    delta_z = self.center_z - z3
+                    print(self.center_x, self.center_y, self.center_z)
 
                     if self.drone.setup == False:
-                        self.drone.pid_setup(X0=delta_x, Y0=delta_y, Z0=delta_z)
-
-                else:
-                    (x, y) = KF.predict()
-                    print("prediction :", x, y)
-                    current_prediction = (int(x), int(y))
-                    x3, y3 = int(current_prediction[0]), int(current_prediction[1])
-                    frame = cv2.circle(frame, (x3, y3), 0, COLOR_RED, 20)
+                        self.drone.pid_setup(X0=self.center_x, Y0=self.center_y, Z0=self.center_z)
+                    print(".... centre ....", self.center_x, self.center_y, self.center_z, "......")
+                    self.drone.autodrive(delta_x=x, delta_y=y, delta_z=z, radius=0)
 
 
-                if delta_z != None:
-                        self.drone.autodrive(delta_x=delta_x, delta_y=delta_y, delta_z=delta_z, radius=0)
+                    #self.drone.autodrive(delta_x=delta_x, delta_y=delta_y, delta_z=delta_z, radius=0)
+                    #else:
+                    #    (x, y) = KF.predict()
+                    #    current_prediction = (int(x), int(y))
+                    #    x3, y3 = int(current_prediction[0]), int(current_prediction[1])
+                    #    frame = cv2.circle(frame, (x3, y3), 0, COLOR_RED, 20)
+
+
+
+
+
                 cv2.imshow(self.window_name, frame)
 
 
                 # Exit if ESC pressed
                 k = cv2.waitKey(1) & 0xff
                 if k == 27 :
+                    self.drone.land()
                     break
 
         cv2.destroyWindow(self.window_name)

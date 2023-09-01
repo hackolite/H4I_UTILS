@@ -37,12 +37,8 @@ import vlc
 import cv2, os
 
 
-import time
-
 import tracker
 from labels import labels
-
-
 
 
 def get_center(bbox=None):
@@ -52,7 +48,6 @@ def get_center(bbox=None):
     y2 = bbox[3]
     x3 = ((x2-x1)/2+x1)
     y3 = ((y2-y1)/2+y1)
-    print("center :", x3, y3)
     return x3,y3
 
 class UserVision:
@@ -196,10 +191,15 @@ def draw_detections_on_image(image, detections, labels, classe=1):
     return image_with_detections
 
 
+
+def detect_face(face):
+    face_cascade = cv2.CascadeClassifier('./cascade_files/haarcascade_frontalface_alt.xml')
+    face_rects = face_cascade.detectMultiScale(face, 1.3, 5)
+    return face_rects
+
 def draw_predictions_on_image(image=None, center=None):
     font = cv2.FONT_HERSHEY_SIMPLEX
     color = (0, 255, 0)
     label_padding = 5
-    print(center)
     frame = cv2.circle(image, (int(center[0]), int(center[1])), 10, (0, 0, 255), 2)
     return frame

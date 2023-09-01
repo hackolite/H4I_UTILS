@@ -38,12 +38,12 @@ import cv2, os
 import cv2,os
 
 import time, tracker
-from utils import detect
+from utils import detect, detect_face
 #from protos import string_int_label_map_pb2
 import string
 import random
-
-from pid import PidController
+from simple_pid import PID
+from pid import PIDController
 
 ("Num GPUs Available: ", len(tf.config.list_physical_devices('GPU')))
 
@@ -66,21 +66,25 @@ def random_str(length):
     # choose from all lowercase letter
     letters = string.ascii_lowercase
     result_str = ''.join(random.choice(letters) for i in range(length))
-    print("Random string of length", length, "is:", result_str)
     return result_str
 
 
 # Loads the module from internet, unpacks it and initializes a Tensorflow saved model.
-def load_model(model_name):
-    model_url = 'http://download.tensorflow.org/models/object_detection/' + model_name + '.tar.gz'
+def load_model(model_name, local=True):
+    if local==False:
+        model_url = 'http://download.tensorflow.org/models/object_detection/' + model_name + '.tar.gz'
+        model_dir = tf.keras.utils.get_file(
+            fname=model_name,
+            origin=model_url,
+            untar=True,
+            cache_dir=pathlib.Path('.tmp').absolute()
+        )
+        print(model_dir, "/saved_model")
+        model = tf.saved_model.load(export_dir=".", tags=None)
 
-    model_dir = tf.keras.utils.get_file(
-        fname=model_name,
-        origin=model_url,
-        untar=True,
-        cache_dir=pathlib.Path('.tmp').absolute()
-    )
-    model = tf.saved_model.load(export_dir=model_dir + '/saved_model', tags=None)
+    else:
+        model = tf.saved_model.load(export_dir=".", tags=None)
+
 
     return model
 
@@ -143,7 +147,7 @@ class UserVision:
     def print_toto(self, args):
                 print("toto")
 
-
+import time
 
 class Drone(Bebop):
 
@@ -160,19 +164,18 @@ class Drone(Bebop):
     def pid_setup(self, X0=None, Y0=None, Z0=None):
         #check internals parameters
         self.setup = True
-        self.pid_x = PidController(0.0, 0.0, 1.0, self.TARGET_X, X0, 0)
-        self.pid_y = PidController(0.0, 0.0, 1.0, self.TARGET_Y, Y0, 0)
-        self.pid_z = PidController(0.0, 0.0, 1.0, self.TARGET_Z, Z0, 0)
+        self.pid_x = PIDController(0, 0.2, 0.1, self.TARGET_X)
+        self.pid_y = PIDController(0, 0.2, 0.1, self.TARGET_Y)
+        self.pid_z = PIDController(0, 0.2, 0.1, self.TARGET_Z)
         self.start = time.time()
 
-        print("PID CORRECTION:", self.pid_x, self.pid_y, self.pid_z)
 
 
-    def land(self):
-        self.safe_land(10)
+    def land_(self):
+        self.safe_land(5)
 
 
-    def takeoff(self):
+    def take_off(self):
         self.safe_takeoff(10)
 
 
@@ -186,12 +189,14 @@ class Drone(Bebop):
 
     def autodrive(self, delta_x=None, delta_y=None, delta_z=None, radius=0):
         t = time.time() - self.start
-        pX = self.pid_x.next(t, delta_x)
-        pY = self.pid_y.next(t, delta_y)
-        pZ = self.pid_z.next(t, delta_z)
-        print(".... PID:", pX, pY, pZ, "......")
-        #self.move_relative(delta_x, delta_y, delta_z, 0)
+        pX = self.pid_x.compute(delta_x)
+        pY = self.pid_y.compute(delta_y)
+        pZ = self.pid_z.compute(delta_z)
+        time.sleep(1)
+        #self.move_relative(0, pY/100, pZ,/100)
 
+        print(".... position  ", 0, delta_x, delta_y, delta_z)
+        print("....correction ", 0, pX/1000, pY/1000, pZ/1000, "......")
 
 
     def left(self, metres=None):
@@ -202,7 +207,6 @@ class Drone(Bebop):
     def right(self, metres=None):
         #y
         pass
-
 
 
     def top(self, metres=None):
@@ -286,10 +290,14 @@ def is_target_detected(detections=None, classe=None):
     return False
 
 
-def main(vision="webcam"):
+def main(vision="webcam", local=True):
     # Load our serialized model from disk
+    #face_cascade = cv2.CascadeClassifier('./cascade_files/haarcascade_frontalface_alt.xml')
+    #face_rects = face_cascade.detectMultiScale(face, 1.3, 5)
+    #exit(0)
+
     print("[INFO] Loading model...")
-    model = load_model("ssdlite_mobilenet_v2_coco_2018_05_09")
+    model = load_model("ssdlite_mobilenet_v2_coco_2018_05_09", local=local)
     print("[INFO] Loading successfull...")
 
 
@@ -297,17 +305,29 @@ def main(vision="webcam"):
         # start up the video
         drone = Drone()
         success = drone.connect(5)
-        drone.set_video_stream_mode(mode = 'low_latency')
+        drone.set_video_stream_mode(mode = "high_reliability_low_framerate")
 
         bebopVision = Vision(drone, Model.BEBOP)
         userVision = UserVision(bebopVision)
         bebopVision.set_user_callback_function(userVision.save_pictures, user_callback_args=None)
         success = bebopVision.open_video()
-        track_person = tracker.Tracker("Tracking", w, h, drone=drone, model=model, vision=bebopVision )
-        track_person.track()
+        if success:
+            #drone.take_off()
+            while True :
+                    elapsed_time, frame = bebopVision.get_webcam()
+                    detections = detect(image=frame, model=model.signatures['serving_default'])
+                    resp = is_target_detected(detections=detections, classe=1)
+                    h, w = frame.shape[:2]
+                    if resp:
+                        track_person = tracker.Tracker("drone", w, h, drone=drone, model=model, vision=bebopVision )
+                        track_person.track()
+
+                    #if elapsed_time > 5:
+                    #    drone.land()
+
 
     elif vision == "webcam":
-        print("... USE WEBCAM ...")
+        #print("... USE WEBCAM ...")
         drone = Drone()
         webcamVision = Vision(drone, Model.BEBOP)
         userVision = UserVision(webcamVision)
@@ -316,7 +336,6 @@ def main(vision="webcam"):
         while True :
             elapsed_time, frame = webcamVision.get_webcam()
             detections = detect(image=frame, model=model.signatures['serving_default'])
-            print(elapsed_time, detections)
             resp = is_target_detected(detections=detections, classe=1)
             h, w = frame.shape[:2]
             if resp:
@@ -327,9 +346,5 @@ def main(vision="webcam"):
                 print("OBJECT NOT DETECTED")
 
                 exit(0)
-
-        else:
-            pass
-
 
 main(vision="webcam")
